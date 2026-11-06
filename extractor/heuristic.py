@@ -39,7 +39,9 @@ _LABELLED: dict[str, tuple[re.Pattern[str], ...]] = {
 }
 
 _SERIOUS = re.compile(
-    r"hospitalis\w*|hospitaliz\w*|life[\s-]threatening|death|fatal|disability|congenital",
+    r"hospitalis\w*|hospitaliz\w*|life[\s-]threatening|death|fatal"
+    r"|disability|incapacitat\w*|congenital|birth\s+defect"
+    r"|cancer\w*|malignan\w*|tumou?r|medically\s+important",
     re.IGNORECASE,
 )
 _EXPECTED = re.compile(
@@ -57,6 +59,23 @@ def _clean(raw: str) -> str:
     return raw.strip().rstrip(".,;").strip()
 
 
+_NEXT_LABEL = re.compile(
+    r"\s+(?=(?:patient|medication|drug|product|adverse\s+event|reaction"
+    r"|event|reported\s+by|reporter|seriousness|expectedness)\s*[:\-])",
+    re.IGNORECASE,
+)
+
+
+def _cut_at_next_label(value: str) -> str:
+    """Stop a captured value where the next ``label:`` starts.
+
+    Documents often pack several ``label: value`` pairs on one line
+    ("Patient: B. Ade. Reaction: nausea."); the capture for one label
+    must not swallow the next.
+    """
+    return _NEXT_LABEL.split(value.strip(), maxsplit=1)[0]
+
+
 def _labelled_field(text: str, key: str) -> FieldDraft:
     """Match a labelled ``key: value`` pattern for one field."""
     for pattern in _LABELLED[key]:
@@ -64,7 +83,7 @@ def _labelled_field(text: str, key: str) -> FieldDraft:
         if match is None:
             continue
         raw = match.group("v")
-        value = _clean(raw)
+        value = _clean(_cut_at_next_label(raw))
         if not value:
             continue
         start = match.start("v") + (len(raw) - len(raw.lstrip()))

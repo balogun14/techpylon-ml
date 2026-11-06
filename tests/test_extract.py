@@ -1,9 +1,14 @@
-"""Tests for the TechPylon extractor (deterministic, heuristic, API)."""
+"""Tests for the TechPylon extractor: deterministic, heuristic, readers, API."""
 
+import io
+
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from extractor.deterministic import extract_csv
 from extractor.heuristic import extract_text
+from extractor.readers import DocReadError, read_document
 from extractor.schemas import (
     FIELD_KEYS,
     ExtractResponse,
@@ -36,7 +41,7 @@ def test_csv_messy_headers() -> None:
     assert len(drafts) == 2
     first = drafts[0]
     assert first.doc_type == "csv_line_listing"
-    assert first.extractor_version == "0.1.0"
+    assert first.extractor_version == "0.2.0"
     assert set(first.fields) == set(FIELD_KEYS)
     patient = first.fields["patient"]
     assert patient.value == "JD"
@@ -123,12 +128,13 @@ def test_healthz() -> None:
 def test_extract_csv_end_to_end() -> None:
     """CSV uploads return the cases wrapper, one case per row."""
     resp = client.post(
-        "/extract", json={"filename": "listing.csv", "text": CSV_TEXT}
+        "/extract",
+        files={"file": ("listing.csv", CSV_TEXT.encode(), "text/csv")},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["doc_type"] == "csv_line_listing"
-    assert body["extractor_version"] == "0.1.0"
+    assert body["extractor_version"] == "0.2.0"
     assert set(body) == {"doc_type", "extractor_version", "cases"}
     assert len(body["cases"]) == 2
     case = body["cases"][0]
@@ -149,11 +155,7 @@ def test_extract_free_text_end_to_end() -> None:
     """Free-text uploads return a single response in contract shape."""
     resp = client.post(
         "/extract",
-        json={
-            "filename": "report_17.txt",
-            "content_type": "text/plain",
-            "text": FREE_TEXT,
-        },
+        files={"file": ("report_17.txt", FREE_TEXT.encode(), "text/plain")},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -163,28 +165,127 @@ def test_extract_free_text_end_to_end() -> None:
     assert body["narrative"]["origin"] == "heuristic"
 
 
-def test_csv_content_type_detection() -> None:
-    """CSV is also detected from the content type."""
+# --- document readers: PDF and DOCX ---
+
+
+def _minimal_pdf(text: str) -> bytes:
+    """Build a small but valid one-page PDF with a text layer."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length "
+        + str(len(stream)).encode()
+        + b" >>\nstream\n"
+        + stream
+        + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, obj in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode() + obj + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref}\n%%EOF"
+    ).encode()
+    return bytes(out)
+
+
+def test_read_pdf() -> None:
+    """PDF text layer is extracted and flows through extraction."""
+    data = _minimal_pdf("Patient: Jane Doe. Reaction: fatal rash.")
+    text = read_document("scan.pdf", data)
+    assert "Jane Doe" in text
+    resp = extract_text(text)
+    assert resp.fields["patient"].value == "Jane Doe"
+    assert resp.fields["seriousness"].value == "serious"
+
+
+def test_read_pdf_without_text_layer() -> None:
+    """A text-free PDF raises DocReadError, the basis of the 422 path."""
+    with pytest.raises(DocReadError):
+        read_document("scan.pdf", b"%PDF-1.4 not a real pdf")
+
+
+def test_read_docx() -> None:
+    """DOCX paragraphs and table cells become extractable text."""
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("Patient: Jane Doe")
+    doc.add_paragraph("Reaction: hospitalisation for rash")
+    doc.add_paragraph("Reported by: Dr. Smith")
+    table = doc.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "Case id"
+    table.rows[0].cells[1].text = "PV-2024-0117"
+    buf = io.BytesIO()
+    doc.save(buf)
+    text = read_document("report.docx", buf.getvalue())
+    assert "Jane Doe" in text
+    assert "PV-2024-0117" in text  # table cells are not lost
+    resp = extract_text(text)
+    assert resp.fields["patient"].value == "Jane Doe"
+    assert resp.fields["seriousness"].value == "serious"
+    assert resp.fields["reporter"].value == "Dr. Smith"
+
+
+def test_extract_pdf_and_docx_end_to_end() -> None:
+    """The service accepts pdf/docx multipart uploads directly."""
     resp = client.post(
         "/extract",
-        json={
-            "filename": "listing.dat",
-            "content_type": "text/csv",
-            "text": CSV_TEXT,
+        files={
+            "file": (
+                "scan.pdf",
+                _minimal_pdf("Patient: R. Okoye. Medication: Aspirin."),
+                "application/pdf",
+            )
         },
     )
-    assert resp.json()["doc_type"] == "csv_line_listing"
+    assert resp.status_code == 200
+    assert resp.json()["fields"]["patient"]["value"] == "R. Okoye"
+
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("Patient: B. Ade. Reaction: nausea.")
+    buf = io.BytesIO()
+    doc.save(buf)
+    resp = client.post(
+        "/extract",
+        files={
+            "file": ("report.docx", buf.getvalue(), "application/octet-stream")
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["fields"]["patient"]["value"] == "B. Ade"
+
+
+def test_narrative_strips_event_label_prefix() -> None:
+    """Narrative does not duplicate the event value's label prefix."""
+    resp = extract_text(
+        "Patient: Jane Doe\n"
+        "Event: Patient experienced a severe rash five days into treatment.\n"
+        "Medication: Aspirin\n"
+    )
+    assert "experienced Patient experienced" not in resp.narrative.value
+    assert "a severe rash" in resp.narrative.value
 
 
 def test_extract_response_rejects_bad_confidence() -> None:
     """Confidence outside [0, 1] is rejected at the trust boundary."""
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         ExtractResponse(
             doc_type="free_text",
-            extractor_version="0.1.0",
+            extractor_version="0.2.0",
             fields={
                 "patient": FieldDraft(value="x", confidence=1.5),
             },

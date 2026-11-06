@@ -7,6 +7,7 @@ raw input.
 """
 
 import csv
+import re
 
 from extractor import __version__
 from extractor.schemas import (
@@ -63,11 +64,16 @@ def build_narrative(
 ) -> FieldDraft:
     """Assemble a narrative draft from extracted field values."""
     v = {key: values.get(key, "").strip() for key in FIELD_KEYS}
+    # narrative reads naturally when the event phrase doesn't repeat
+    # its own label prefix, e.g. "Event: Patient experienced ..."
+    event = re.sub(
+        r"^patient\s+(?:experienced\s+)?", "", v["event"], flags=re.IGNORECASE
+    )
     clauses: list[str] = []
     if v["patient"]:
         clauses.append(f"Patient {v['patient']}")
-    if v["event"]:
-        clauses.append(f"experienced {v['event']}")
+    if event:
+        clauses.append(f"experienced {event}")
     if v["product"]:
         clauses.append(f"after taking {v['product']}")
     if v["reporter"]:
