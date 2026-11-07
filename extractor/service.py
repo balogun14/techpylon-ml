@@ -1,17 +1,23 @@
 """FastAPI service for the TechPylon ML extractor (port 8100).
 
-``POST /extract`` accepts a multipart ``file`` field (pdf, docx, csv, txt)
-and returns, per ``docs/api-contract.md``:
+``POST /extract`` accepts a multipart ``file`` field (pdf, docx, csv, txt,
+images) and returns, per ``docs/api-contract.md``:
 
-- Free text (and pdf/docx): a single object
-  ``{"doc_type": "free_text", "extractor_version": "0.2.0",
-  "fields": {...}, "narrative": {...}}`` carrying all six field keys.
-- CSV (filename ends with ``.csv``, case-insensitive): a wrapper object
-  ``{"doc_type": "csv_line_listing", "extractor_version": "0.2.0",
-  "cases": [<response>, ...]}`` with one entry per CSV data row and no
-  top-level ``fields``/``narrative``.
+- Free text (and pdf/docx/images): a single case object.
+- CSV: ``{"doc_type": "csv_line_listing", ..., "cases": [<case>, ...]}``.
 
-Documents with no extractable text layer (scanned PDFs) return 422.
+After extraction, an enrichment pipeline runs on every case:
+
+1. trained seriousness/expectedness classifiers, when artefacts exist
+   (``make train-models`` -> ``models/classifier.joblib``);
+2. LLM fallback for low-confidence labelled fields, when
+   ``TECHPYLON_LLM_API_KEY`` is set;
+3. MedDRA-style coding of product/event values;
+4. PII scan of the source text.
+
+Every enrichment stage degrades gracefully: a failure logs a warning and
+leaves the draft untouched, so extraction never fails because enrichment
+did.
 """
 
 from typing import Any
@@ -32,10 +38,37 @@ MAX_UPLOAD = 10 << 20  # 10 MiB, mirrors the Go API's read limit
 
 
 def _single(case: ExtractResponse) -> dict[str, Any]:
-    """Serialize one case, dropping the CSV-only ``cases`` field."""
-    data = case.model_dump(mode="json")
+    """Serialize one case, dropping nested CSV wrappers and nulls."""
+    data = case.model_dump(mode="json", exclude_none=True)
     data.pop("cases", None)
     return data
+
+
+def _enrich(case: ExtractResponse, text: str) -> ExtractResponse:
+    """Attach coding, PII, model and LLM sections; never raise."""
+    from extractor import coding, llm_fallback, models, pii
+
+    try:
+        used = models.apply(case, text)
+        if used:
+            case.model_fields_used = used
+    except Exception as exc:
+        logger.warning("model stage failed: {}", exc)
+    try:
+        used = llm_fallback.apply(case, text)
+        if used:
+            case.llm_fields_used = used
+    except Exception as exc:
+        logger.warning("llm stage failed: {}", exc)
+    try:
+        case.coded_terms = coding.code_case(case)
+    except Exception as exc:
+        logger.warning("coding stage failed: {}", exc)
+    try:
+        case.pii = pii.scan(text)
+    except Exception as exc:
+        logger.warning("pii stage failed: {}", exc)
+    return case
 
 
 @app.get("/healthz")
@@ -63,9 +96,9 @@ async def extract(file: UploadFile) -> dict[str, Any]:
         return {
             "doc_type": "csv_line_listing",
             "extractor_version": __version__,
-            "cases": [_single(case) for case in cases],
+            "cases": [_single(_enrich(case, text)) for case in cases],
         }
-    case = extract_text(text)
+    case = _enrich(extract_text(text), text)
     logger.info("free-text extract: file={} chars={}", filename, len(text))
     return _single(case)
 

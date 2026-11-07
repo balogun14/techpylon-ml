@@ -4,6 +4,7 @@ import re
 
 from extractor import __version__
 from extractor.deterministic import build_narrative
+from extractor.multilang import EXTRA_LABELLED, EXTRA_SERIOUS_TERMS
 from extractor.schemas import (
     FIELD_KEYS,
     ExtractResponse,
@@ -36,14 +37,17 @@ _LABELLED: dict[str, tuple[re.Pattern[str], ...]] = {
             re.IGNORECASE,
         ),
     ),
+    **EXTRA_LABELLED,
 }
 
-_SERIOUS = re.compile(
+_SERIOUS_TERMS = (
     r"hospitalis\w*|hospitaliz\w*|life[\s-]threatening|death|fatal"
     r"|disability|incapacitat\w*|congenital|birth\s+defect"
-    r"|cancer\w*|malignan\w*|tumou?r|medically\s+important",
-    re.IGNORECASE,
+    r"|cancer\w*|malignan\w*|tumou?r|medically\s+important"
 )
+if EXTRA_SERIOUS_TERMS:
+    _SERIOUS_TERMS += "|" + EXTRA_SERIOUS_TERMS
+_SERIOUS = re.compile(_SERIOUS_TERMS, re.IGNORECASE)
 _EXPECTED = re.compile(
     r"\b(?:known|labelled|labeled|expected)\b", re.IGNORECASE
 )

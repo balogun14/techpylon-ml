@@ -1,7 +1,9 @@
 """Pydantic models shared by the TechPylon extraction pipeline.
 
 Shapes mirror ``docs/api-contract.md``: every extracted field is a
-``FieldDraft`` and one extraction produces an ``ExtractResponse``.
+``FieldDraft`` and one extraction produces an ``ExtractResponse``. The
+enrichment stage attaches optional, additive sections (coding, PII,
+model provenance) that reviewers and the API can consume.
 """
 
 from typing import Literal
@@ -19,7 +21,7 @@ FIELD_KEYS: tuple[str, ...] = (
     "expectedness",
 )
 
-FieldOrigin = Literal["deterministic", "heuristic"]
+FieldOrigin = Literal["deterministic", "heuristic", "model", "llm"]
 
 
 class SourceSpan(BaseModel):
@@ -51,12 +53,24 @@ class FieldDraft(BaseModel):
         return self
 
 
-class ExtractRequest(BaseModel):
-    """Body of ``POST /extract``."""
+class CodedTerm(BaseModel):
+    """A coding-dictionary term matched to an extracted field value."""
 
-    filename: str
-    content_type: str = "text/plain"
+    field: str
     text: str
+    code: str
+    term: str
+    method: Literal["exact", "alias", "fuzzy"]
+    confidence: float = Field(ge=0, le=1)
+
+
+class PiiFinding(BaseModel):
+    """A personal-data fragment found in the source text."""
+
+    kind: Literal["email", "phone", "national_id", "date_of_birth"]
+    value: str
+    start: int
+    end: int
 
 
 class ExtractResponse(BaseModel):
@@ -67,3 +81,8 @@ class ExtractResponse(BaseModel):
     fields: dict[str, FieldDraft]
     narrative: FieldDraft
     cases: list["ExtractResponse"] | None = None
+    # enrichment (additive, optional)
+    coded_terms: list[CodedTerm] | None = None
+    pii: list[PiiFinding] | None = None
+    model_fields_used: list[str] | None = None
+    llm_fields_used: list[str] | None = None

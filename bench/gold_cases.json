@@ -1,0 +1,155 @@
+{
+  "description": "TechPylon annotated bench seed set. Gold annotations per field; grows toward the 1,400-case target with credentialed safety-reviewer sign-off. Used by the bench harness (make bench), calibration (make calibrate) and classifier training (make train-models).",
+  "cases": [
+    {
+      "id": "b_001",
+      "doc_type": "free_text",
+      "text": "Patient: Jane Doe, 34F\nDrug: Amoxicillin 500mg, started 12 Oct\nEvent: Patient experienced a severe rash (pruritic) five days into treatment.\nReported by: Dr. K. Adeyemi, Lagos\nThe reaction was serious, requiring hospitalisation. Rash is a known labelled reaction to penicillins, considered expected.",
+      "expected": {
+        "patient": "Jane Doe, 34F",
+        "product": "Amoxicillin 500mg, started 12 Oct",
+        "event": "Patient experienced a severe rash (pruritic) five days into treatment",
+        "reporter": "Dr. K. Adeyemi, Lagos",
+        "seriousness": "serious",
+        "expectedness": "expected"
+      }
+    },
+    {
+      "id": "b_002",
+      "doc_type": "free_text",
+      "text": "Patient name: Chinedu Okafor\nMedication: Ibuprofen 400mg\nReaction: mild nausea after first dose\nReported by: Pharm. S. Bello\nNo hospitalisation; the patient stayed at home. Nausea is a known effect of NSAIDs.",
+      "expected": {
+        "patient": "Chinedu Okafor",
+        "product": "Ibuprofen 400mg",
+        "event": "mild nausea after first dose",
+        "reporter": "Pharm. S. Bello",
+        "seriousness": "non-serious",
+        "expectedness": "expected"
+      }
+    },
+    {
+      "id": "b_003",
+      "doc_type": "free_text",
+      "text": "Patient: Fatima Bello, 2F\nProduct: Paracetamol syrup\nReaction: fever continued, no improvement\nReported by: Guardian, Mrs. Bello\nTreating clinician says the fever is unexpected given the therapy.",
+      "expected": {
+        "patient": "Fatima Bello, 2F",
+        "product": "Paracetamol syrup",
+        "event": "fever continued, no improvement",
+        "reporter": "Guardian, Mrs. Bello",
+        "seriousness": "non-serious",
+        "expectedness": "unexpected"
+      }
+    },
+    {
+      "id": "b_004",
+      "doc_type": "free_text",
+      "text": "Patient: Emeka Nwosu, 56M\nDrug: Artemether/Lumefantrine\nEvent: Jaundice and dark urine noticed on day 3.\nReported by: Dr. A. Hassan, UNILAG clinic\nOutcome: fatal. Liver failure diagnosed post-mortem. Considered an unexpected event.",
+      "expected": {
+        "patient": "Emeka Nwosu, 56M",
+        "product": "Artemether/Lumefantrine",
+        "event": "Jaundice and dark urine noticed on day 3",
+        "reporter": "Dr. A. Hassan, UNILAG clinic",
+        "seriousness": "serious",
+        "expectedness": "unexpected"
+      }
+    },
+    {
+      "id": "b_005",
+      "doc_type": "free_text",
+      "text": "Patient: Aisha Mohammed\nProduct: combined oral contraceptive\nReaction: no unusual effects during first cycle\nReported by: self\nRoutine tolerance report, nothing remarkable.",
+      "expected": {
+        "patient": "Aisha Mohammed",
+        "product": "combined oral contraceptive",
+        "event": "no unusual effects during first cycle",
+        "reporter": "self",
+        "seriousness": "non-serious",
+        "expectedness": "unknown"
+      }
+    },
+    {
+      "id": "b_006",
+      "doc_type": "free_text",
+      "text": "Patient: Tunde Adeyemi, 45M\nMedication: Metformin 1000mg BD\nEvent: Hypoglycaemia admitted to hospital overnight.\nReported by: Dr. F. Obi\nLabelled reaction, expected per product label.",
+      "expected": {
+        "patient": "Tunde Adeyemi, 45M",
+        "product": "Metformin 1000mg BD",
+        "event": "Hypoglycaemia admitted to hospital overnight",
+        "reporter": "Dr. F. Obi",
+        "seriousness": "serious",
+        "expectedness": "expected"
+      }
+    },
+    {
+      "id": "b_007",
+      "doc_type": "free_text",
+      "text": "Patient: Bisi Ade\nDrug: Ciprofloxacin\nReaction: tendon pain in left Achilles\nReporter: physiotherapist, Mr. L. Umeh\nSuspected drug-induced tendinopathy, new signal for this label in our experience.",
+      "expected": {
+        "patient": "Bisi Ade",
+        "product": "Ciprofloxacin",
+        "event": "tendon pain in left Achilles",
+        "reporter": "physiotherapist, Mr. L. Umeh",
+        "seriousness": "non-serious",
+        "expectedness": "unexpected"
+      }
+    },
+    {
+      "id": "b_008",
+      "doc_type": "free_text",
+      "text": "Patient: Yemi Ogun, 70F\nProduct: Lisinopril 10mg\nEvent: Angio-oedema with airway compromise, life-threatening episode.\nReported by: Dr. C. Eze, LASUTH\nAdmitted to ICU; known class effect, labelled as expected.",
+      "expected": {
+        "patient": "Yemi Ogun, 70F",
+        "product": "Lisinopril 10mg",
+        "event": "Angio-oedema with airway compromise, life-threatening episode",
+        "reporter": "Dr. C. Eze, LASUTH",
+        "seriousness": "serious",
+        "expectedness": "expected"
+      }
+    },
+    {
+      "id": "b_009",
+      "doc_type": "free_text",
+      "text": "Patient: Ngozi Eze\nSuspect Product: Artesunate 100mg\nAdverse Event: severe vomiting requiring hospitalisation.\nReported by: Pharm. T. Bello, UNILAG clinic\nEvent ongoing at time of report; expectedness not yet assessed.",
+      "expected": {
+        "patient": "Ngozi Eze",
+        "product": "Artesunate 100mg",
+        "event": "severe vomiting requiring hospitalisation",
+        "reporter": "Pharm. T. Bello, UNILAG clinic",
+        "seriousness": "serious",
+        "expectedness": "unknown"
+      }
+    },
+    {
+      "id": "b_010",
+      "doc_type": "free_text",
+      "text": "Patient name: Sadiq Garba, 8M\nDrug name: ORS zinc formulation\nReaction: none observed during supplementation\nReported by: community health worker, H. Ali\nTolerability follow-up only.",
+      "expected": {
+        "patient": "Sadiq Garba, 8M",
+        "product": "ORS zinc formulation",
+        "event": "none observed during supplementation",
+        "reporter": "community health worker, H. Ali",
+        "seriousness": "non-serious",
+        "expectedness": "unknown"
+      }
+    },
+    {
+      "id": "b_011",
+      "doc_type": "csv_line_listing",
+      "text": "Patient Initials,Suspect Product,Adverse Event,Reported By,Serious,Expected\nJD,Aspirin,Headache,Alice,yes,expected\nMK,Ibuprofen,Nausea,Bob,no,unexpected\nEO,Paracetamol,Rash requiring hospitalisation,Dr. Musa,yes,unexpected\n",
+      "expected": null,
+      "note": "CSV rows are validated structurally (one draft per row, deterministic confidence) rather than against per-field gold values."
+    },
+    {
+      "id": "b_012",
+      "doc_type": "free_text",
+      "text": "Report received via phone follow-up. Patient: Halima Yusuf, 29F. Medication: ferrous sulphate. Reaction: constipation manageable at home, no care sought. Reported by: Dr. M. Adamu. Known labelled effect.",
+      "expected": {
+        "patient": "Halima Yusuf, 29F",
+        "product": "ferrous sulphate",
+        "event": "constipation manageable at home, no care sought",
+        "reporter": "Dr. M. Adamu",
+        "seriousness": "non-serious",
+        "expectedness": "expected"
+      }
+    }
+  ]
+}

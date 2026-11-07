@@ -41,7 +41,7 @@ def test_csv_messy_headers() -> None:
     assert len(drafts) == 2
     first = drafts[0]
     assert first.doc_type == "csv_line_listing"
-    assert first.extractor_version == "0.3.0"
+    assert first.extractor_version == "0.4.0"
     assert set(first.fields) == set(FIELD_KEYS)
     patient = first.fields["patient"]
     assert patient.value == "JD"
@@ -134,11 +134,18 @@ def test_extract_csv_end_to_end() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["doc_type"] == "csv_line_listing"
-    assert body["extractor_version"] == "0.3.0"
+    assert body["extractor_version"] == "0.4.0"
     assert set(body) == {"doc_type", "extractor_version", "cases"}
     assert len(body["cases"]) == 2
     case = body["cases"][0]
-    assert set(case) == {"doc_type", "extractor_version", "fields", "narrative"}
+    assert set(case) == {
+        "doc_type",
+        "extractor_version",
+        "fields",
+        "narrative",
+        "coded_terms",
+        "pii",
+    }
     draft = case["fields"]["patient"]
     assert draft["value"] == "JD"
     assert set(draft) == {
@@ -159,7 +166,14 @@ def test_extract_free_text_end_to_end() -> None:
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"doc_type", "extractor_version", "fields", "narrative"}
+    assert set(body) == {
+        "doc_type",
+        "extractor_version",
+        "fields",
+        "narrative",
+        "coded_terms",
+        "pii",
+    }
     assert body["doc_type"] == "free_text"
     assert set(body["fields"]) == set(FIELD_KEYS)
     assert body["narrative"]["origin"] == "heuristic"
@@ -327,7 +341,7 @@ def test_extract_response_rejects_bad_confidence() -> None:
     with pytest.raises(ValidationError):
         ExtractResponse(
             doc_type="free_text",
-            extractor_version="0.3.0",
+            extractor_version="0.4.0",
             fields={
                 "patient": FieldDraft(value="x", confidence=1.5),
             },
