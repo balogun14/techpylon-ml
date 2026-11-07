@@ -96,6 +96,6 @@ def calibrated(confidence: float, calibration: dict[str, Any]) -> float:
             return float(accuracy)
     return confidence
 
+
 if __name__ == "__main__":
     fit_calibration()
-

@@ -6,7 +6,11 @@ It only ever fills in low-confidence or unknown values; it must never
 override high-confidence or reviewer-edited signals.
 """
 
-from extractor import coding
+from typing import Any
+
+from loguru import logger
+
+from extractor import coding, sources
 from extractor.dictionary import EVENTS
 from extractor.reference_labels import PRODUCT_KEY
 from extractor.schemas import ExtractResponse
@@ -47,3 +51,44 @@ def refine_expectedness(case: ExtractResponse) -> bool:
         field.confidence = _DOWN_CONFIDENCE
         return True
     return False
+
+
+def faers_support(case: ExtractResponse) -> list[dict[str, Any]]:
+    """FAERS report counts corroborating the coded event.
+
+    Reviewer-visible corroboration only: this never changes field
+    values and does not participate in ``refine_expectedness`` — the
+    API surfaces the returned priors beside the draft so a reviewer
+    can see how often the coded event is reported for the coded
+    product in FAERS. A FAERS term corroborates the event when it
+    shares at least the first three characters with the coded event
+    term (case-insensitive).
+
+    Parameters
+    ----------
+    case : ExtractResponse
+        One case draft with (ideally) coded product and event fields.
+
+    Returns
+    -------
+    list of dict
+        ``[{"term", "count", "share"}, ...]`` for matching FAERS
+        terms; empty when product/event cannot be coded, FAERS is
+        unavailable, or anything else goes wrong (fail-open).
+    """
+    try:
+        terms = coding.code_case(case)
+        product = next((t for t in terms if t.field == "product"), None)
+        event = next((t for t in terms if t.field == "event"), None)
+        if product is None or event is None:
+            return []
+        priors = sources.drug_event_priors(product.term)
+        prefix = event.term[:3].casefold()
+        return [
+            prior
+            for prior in priors
+            if str(prior["term"]).casefold().startswith(prefix)
+        ]
+    except Exception as exc:
+        logger.warning("reference: faers_support failed: {}", exc)
+        return []

@@ -12,4 +12,5 @@ bench/report.json
 bench/calibration.json
 extractor/customer_aliases.json
 artefacts/
+data/source_cache/
 
