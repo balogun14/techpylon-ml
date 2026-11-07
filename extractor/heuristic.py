@@ -20,7 +20,8 @@ _LABELLED: dict[str, tuple[re.Pattern[str], ...]] = {
     ),
     "product": (
         re.compile(
-            r"(?:drug|product|medication)\s*[:\-]\s*(?P<v>[^\n]+)",
+            r"(?:drug(?:\s+name)?|product|medication(?:\s+name)?)"
+            r"\s*[:\-]\s*(?P<v>[^\n]+)",
             re.IGNORECASE,
         ),
     ),
@@ -41,7 +42,8 @@ _LABELLED: dict[str, tuple[re.Pattern[str], ...]] = {
 }
 
 _SERIOUS_TERMS = (
-    r"hospitalis\w*|hospitaliz\w*|life[\s-]threatening|death|fatal"
+    r"hospitalis\w*|hospitaliz\w*|admitted\s+to\s+(?:the\s+)?hospital"
+    r"|life[\s-]threatening|death|fatal"
     r"|disability|incapacitat\w*|congenital|birth\s+defect"
     r"|cancer\w*|malignan\w*|tumou?r|medically\s+important"
 )
@@ -87,7 +89,7 @@ def _labelled_field(text: str, key: str) -> FieldDraft:
         if match is None:
             continue
         raw = match.group("v")
-        value = _clean(_cut_at_next_label(raw))
+        value = _clean(_cut_at_sentence(_cut_at_next_label(raw)))
         if not value:
             continue
         start = match.start("v") + (len(raw) - len(raw.lstrip()))
@@ -101,18 +103,46 @@ def _labelled_field(text: str, key: str) -> FieldDraft:
     return FieldDraft(value="", confidence=0.0)
 
 
+_NEGATION = re.compile(r"\b(?:no|without|denies|not)\b", re.IGNORECASE)
+_CUT_AT_SENTENCE = re.compile(
+    # "Dr. M. Adamu. Known ..." -> first sentence; single capitals
+    # ("R. Okoye") are initials, not sentence ends
+    r"(?<![A-Z])\.\s+(?=[A-Z][a-z]+[\s,.])"
+)
+
+
+def _cut_at_sentence(value: str) -> str:
+    """Keep only the first sentence when a captured value runs on.
+
+    Inline reports pack sentences together ("Reported by: Dr. M. Adamu.
+    Known labelled effect."); the field value must stop at the sentence
+    boundary. Initials like "Dr. K. Adeyemi" are safe: the lookahead
+    requires a capitalised word after the full stop.
+    """
+    parts = _CUT_AT_SENTENCE.split(value.strip(), maxsplit=1)
+    return parts[0]
+
+
 def _seriousness(text: str) -> FieldDraft:
-    """Classify seriousness from criterion keywords."""
+    """Classify seriousness from criterion keywords.
+
+    A criterion keyword preceded by a negation token ("no
+    hospitalisation") does not make the case serious.
+    """
     match = _SERIOUS.search(text)
-    if match is None:
-        return FieldDraft(value="non-serious", confidence=_CLASSIFY_CONFIDENCE)
-    return FieldDraft(
-        value="serious",
-        confidence=_CLASSIFY_CONFIDENCE,
-        source_span=SourceSpan(
-            start=match.start(), end=match.end(), quote=match.group()
-        ),
-    )
+    while match is not None:
+        window_start = max(0, match.start() - 30)
+        context = text[window_start : match.start()]
+        if not _NEGATION.search(context):
+            return FieldDraft(
+                value="serious",
+                confidence=_CLASSIFY_CONFIDENCE,
+                source_span=SourceSpan(
+                    start=match.start(), end=match.end(), quote=match.group()
+                ),
+            )
+        match = _SERIOUS.search(text, match.end())
+    return FieldDraft(value="non-serious", confidence=_CLASSIFY_CONFIDENCE)
 
 
 def _expectedness(text: str) -> FieldDraft:

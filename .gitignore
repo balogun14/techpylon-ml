@@ -6,3 +6,10 @@ __pycache__/
 .pytest_cache/
 *.db
 
+# generated per run / per release
+extractor/artefacts/
+bench/report.json
+bench/calibration.json
+extractor/customer_aliases.json
+artefacts/
+

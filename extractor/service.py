@@ -46,7 +46,7 @@ def _single(case: ExtractResponse) -> dict[str, Any]:
 
 def _enrich(case: ExtractResponse, text: str) -> ExtractResponse:
     """Attach coding, PII, model and LLM sections; never raise."""
-    from extractor import coding, llm_fallback, models, pii
+    from extractor import coding, llm_fallback, models, pii, reference
 
     try:
         used = models.apply(case, text)
@@ -64,6 +64,11 @@ def _enrich(case: ExtractResponse, text: str) -> ExtractResponse:
         case.coded_terms = coding.code_case(case)
     except Exception as exc:
         logger.warning("coding stage failed: {}", exc)
+    try:
+        if reference.refine_expectedness(case):
+            logger.debug("expectedness refined from reference label")
+    except Exception as exc:
+        logger.warning("reference stage failed: {}", exc)
     try:
         case.pii = pii.scan(text)
     except Exception as exc:
