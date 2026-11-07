@@ -92,3 +92,44 @@ def faers_support(case: ExtractResponse) -> list[dict[str, Any]]:
     except Exception as exc:
         logger.warning("reference: faers_support failed: {}", exc)
         return []
+
+
+def label_support(case: ExtractResponse) -> list[dict[str, Any]]:
+    """SPL label terms corroborating the coded event.
+
+    Reviewer-visible corroboration only: this never changes field
+    values and does not participate in ``refine_expectedness`` — the
+    API surfaces the labelled (expected) terms beside the draft so a
+    reviewer can see which events the coded product's structured
+    product label lists as adverse reactions. A label term
+    corroborates the event when it shares at least the first three
+    characters with the coded event term (case-insensitive).
+
+    Parameters
+    ----------
+    case : ExtractResponse
+        One case draft with (ideally) coded product and event fields.
+
+    Returns
+    -------
+    list of dict
+        ``[{"term", "setid"}, ...]`` for matching label terms; empty
+        when product/event cannot be coded, the label is unavailable,
+        or anything else goes wrong (fail-open).
+    """
+    try:
+        terms = coding.code_case(case)
+        product = next((t for t in terms if t.field == "product"), None)
+        event = next((t for t in terms if t.field == "event"), None)
+        if product is None or event is None:
+            return []
+        labels = sources.spl_label_events(product.term)
+        prefix = event.term[:3].casefold()
+        return [
+            label
+            for label in labels
+            if str(label["term"]).casefold().startswith(prefix)
+        ]
+    except Exception as exc:
+        logger.warning("reference: label_support failed: {}", exc)
+        return []

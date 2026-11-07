@@ -107,7 +107,7 @@ sources below are wired — do not present them as MedDRA.
 |---|---|---|---|
 | **RxNorm** (NLM RxNav API) | wired — `extractor/sources.py` | normalises drug names, cross-checks the drug dictionary | free, no key |
 | **openFDA FAERS** | wired — `extractor/sources.py` | real-world drug→event report counts; data-driven expectedness priors and future classifier training data | free, no key, rate-limited |
-| **DailyMed SPL** | roadmap | structured product labels → machine reference labels (expected events per product) | free |
+| **DailyMed SPL** | wired — `extractor/sources.py` | structured product labels → labelled (expected) event lists | free, no key |
 | **NAFDAC registered products** | ingestion ready — `extractor/nafdac.py` (CSV) | Nigerian product dictionary extension; safety alerts feed | no public bulk API — CSV export from the NAFDAC product registry |
 | **MedDRA** | licensing decision open (PRD) | the regulator-expected AE coding dictionary | commercial license (MSSO/UMC) |
 | **DrugBank** | not used | drug indications/DDI enrichment | commercial (free academic tier exists) |
@@ -155,7 +155,7 @@ extractor/
   dictionary.py     curated internal drug/event dictionary (PT-style codes)
   reference.py      expectedness refinement from reference labels
   reference_labels.py  curated product → expected-event lists
-  sources.py        RxNorm + openFDA FAERS clients (cached, fail-open)
+  sources.py        RxNorm, openFDA FAERS + DailyMed SPL clients (cached, fail-open)
   nafdac.py         NAFDAC registered-products CSV ingestion
   adapt.py          reviewer-correction → customer alias learning
   calibrate.py      confidence calibration

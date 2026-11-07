@@ -7,7 +7,7 @@ import pytest
 
 from extractor import sources
 from extractor.nafdac import extend_aliases, load_products
-from extractor.reference import faers_support
+from extractor.reference import faers_support, label_support
 from extractor.schemas import ExtractResponse, FieldDraft
 
 _RXNAV_PAYLOAD = {
@@ -156,6 +156,129 @@ def test_priors_fail_open(
     assert sources.drug_event_priors("aspirin") == []
 
 
+# --- sources.search_spl / spl_label_events (DailyMed) ---
+
+
+_DAILYMED_SEARCH_PAYLOAD = {
+    "metadata": {"disclaimer": "DailyMed"},
+    "data": [
+        {"setid": "aaa-111", "title": "Aspirin label"},
+        {"setid": "bbb-222", "title": "Aspirin tablet"},
+        {"setid": "ccc-333", "title": "Aspirin xr"},
+        {"setid": "ddd-444", "title": "Other product"},
+    ],
+}
+
+_SPL_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<document xmlns="urn:hl7-org:v3">
+  <section>
+    <heading>Adverse Reactions</heading>
+    <list>
+      <item>1. Headache</item>
+      <item>Nausea; vomiting and dizziness</item>
+      <item>This phrase is far too long to count as a term</item>
+      <item>-</item>
+      <item>Headache</item>
+    </list>
+  </section>
+  <section>
+    <heading>Overdosage</heading>
+    <p>Rash</p>
+  </section>
+</document>"""
+
+
+def _patch_dailymed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    xml: str | None = None,
+    error: Exception | None = None,
+) -> list[int]:
+    """Patch sources._get for DailyMed search + SPL doc; count calls."""
+    calls = [0]
+
+    def fake_get(url: str) -> httpx.Response:
+        calls[0] += 1
+        if error is not None:
+            raise error
+        if "drug_name=" in url:
+            return httpx.Response(200, json=_DAILYMED_SEARCH_PAYLOAD)
+        return httpx.Response(200, text=xml if xml is not None else _SPL_XML)
+
+    monkeypatch.setattr(sources, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(sources, "_get", fake_get)
+    return calls
+
+
+def test_search_spl_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only the first few setid/title results are returned."""
+    calls = _patch_get(monkeypatch, tmp_path, _DAILYMED_SEARCH_PAYLOAD)
+    assert sources.search_spl("aspirin") == [
+        {"setid": "aaa-111", "title": "Aspirin label"},
+        {"setid": "bbb-222", "title": "Aspirin tablet"},
+        {"setid": "ccc-333", "title": "Aspirin xr"},
+    ]
+    assert calls[0] == 1
+    assert (tmp_path / "dailymed_search_aspirin.json").exists()
+
+
+def test_search_spl_error_returns_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A network error degrades to None (fail-open)."""
+    _patch_get(monkeypatch, tmp_path, error=httpx.ConnectError("down"))
+    assert sources.search_spl("aspirin") is None
+
+
+def test_spl_label_events_parses_section(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Terms come from the adverse-reactions section only."""
+    calls = _patch_dailymed(monkeypatch, tmp_path)
+    events = sources.spl_label_events("aspirin")
+    assert events == [
+        {"term": "Headache", "setid": "aaa-111"},
+        {"term": "Nausea", "setid": "aaa-111"},
+        {"term": "vomiting and dizziness", "setid": "aaa-111"},
+    ]
+    assert calls[0] == 2  # setid search + SPL document
+    assert (tmp_path / "dailymed_spl_aspirin.json").exists()
+
+
+def test_spl_label_events_cache_reuse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The second call is served from cache, not the network."""
+    calls = _patch_dailymed(monkeypatch, tmp_path)
+    first = sources.spl_label_events("aspirin")
+    second = sources.spl_label_events("aspirin")
+    assert first == second
+    assert calls[0] == 2
+
+
+def test_spl_label_events_no_heading(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An SPL without an adverse-reactions heading yields [] (debug)."""
+    xml = (
+        '<document xmlns="urn:hl7-org:v3"><section>'
+        "<heading>Overdosage</heading><p>Rash</p>"
+        "</section></document>"
+    )
+    _patch_dailymed(monkeypatch, tmp_path, xml=xml)
+    assert sources.spl_label_events("aspirin") == []
+
+
+def test_spl_label_events_fail_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Any underlying error yields [] (fail-open)."""
+    _patch_dailymed(monkeypatch, tmp_path, error=httpx.ConnectError("down"))
+    assert sources.spl_label_events("aspirin") == []
+
+
 # --- nafdac ---
 
 
@@ -265,3 +388,42 @@ def test_faers_support_unavailable(
 
     monkeypatch.setattr(sources, "drug_event_priors", boom)
     assert faers_support(_case("aspirin", "headache")) == []
+
+
+# --- reference.label_support ---
+
+
+def test_label_support_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Label terms sharing a 3-char prefix with the event are kept."""
+    seen: list[str] = []
+
+    def fake_labels(drug: str) -> list[dict[str, object]]:
+        seen.append(drug)
+        return [{"term": "Headache", "setid": "aaa-111"}]
+
+    monkeypatch.setattr(sources, "spl_label_events", fake_labels)
+    support = label_support(_case("aspirin", "headache"))
+    assert support == [{"term": "Headache", "setid": "aaa-111"}]
+    assert seen == ["aspirin"]
+
+
+def test_label_support_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No shared prefix means no corroboration."""
+    monkeypatch.setattr(
+        sources,
+        "spl_label_events",
+        lambda drug: [{"term": "nausea", "setid": "aaa-111"}],
+    )
+    assert label_support(_case("aspirin", "headache")) == []
+
+
+def test_label_support_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A label fetch failure degrades to [] (fail-open)."""
+
+    def boom(drug: str) -> list[dict[str, object]]:
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(sources, "spl_label_events", boom)
+    assert label_support(_case("aspirin", "headache")) == []

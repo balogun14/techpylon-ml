@@ -11,6 +11,7 @@ import json
 import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,16 @@ _FAERS_URL = (
     '?search=patient.drug.medicinalproduct:"{drug}"'
     "&count=patient.reaction.reactionmeddrapt.exact"
 )
+_DAILYMED_SEARCH_URL = (
+    "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json"
+    "?drug_name={drug}"
+)
+_DAILYMED_SPL_URL = (
+    "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}.xml"
+)
+_SPL_MAX_BYTES = 5 * 1024 * 1024
+_SPL_MAX_TERMS = 30
+_SPL_BULLET_RE = re.compile(r"^\s*(?:\d+[.)]\s*|[-•*·]\s*)")
 
 
 def _get(url: str) -> httpx.Response:
@@ -200,6 +211,141 @@ def drug_event_priors(drug: str) -> list[dict[str, Any]]:
     except Exception as exc:
         logger.warning("sources: priors for '{}' failed: {}", drug, exc)
         return []
+
+
+def _fetch_spl_search(drug: str) -> list[dict[str, str]]:
+    """Query DailyMed for SPL documents matching ``drug``."""
+    url = _DAILYMED_SEARCH_URL.format(drug=quote(drug.strip()))
+    results = _get(url).json().get("data") or []
+    return [
+        {
+            "setid": str(item.get("setid", "")),
+            "title": str(item.get("title", "")),
+        }
+        for item in results[:3]
+    ]
+
+
+def search_spl(drug: str) -> list[dict[str, str]] | None:
+    """Search DailyMed SPL documents by drug name.
+
+    Parameters
+    ----------
+    drug : str
+        Free-text drug name as extracted from a document.
+
+    Returns
+    -------
+    list of dict or None
+        First few ``{"setid": str, "title": str}`` results, or None
+        on no match or any error (fail-open).
+    """
+    key = f"dailymed_search:{drug.strip().casefold()}"
+    result: list[dict[str, str]] | None = _cached_call(
+        key, lambda: _fetch_spl_search(drug)
+    )
+    return result
+
+
+def _local_tag(element: ET.Element) -> str:
+    """Tag name of ``element`` without any ``{namespace}`` prefix."""
+    return str(element.tag).rsplit("}", 1)[-1]
+
+
+def _spl_adverse_chunks(root: ET.Element) -> list[str]:
+    """Text chunks under the section headed 'adverse reactions'.
+
+    Namespace-agnostic: headings match on local tag name, and the
+    section body is the matched heading's parent element. Returns
+    [] when no such heading exists.
+    """
+    for element in root.iter():
+        for child in element:
+            if not isinstance(child.tag, str):
+                continue
+            if _local_tag(child) not in ("heading", "title"):
+                continue
+            if "adverse reaction" not in (child.text or "").casefold():
+                continue
+            chunks: list[str] = []
+            for node in element.iter():
+                heading = (
+                    isinstance(node.tag, str)
+                    and _local_tag(node) in ("heading", "title")
+                )
+                if heading:
+                    continue
+                for chunk in (node.text, node.tail):
+                    if chunk:
+                        chunks.append(chunk)
+            return chunks
+    return []
+
+
+def _spl_terms(chunks: list[str]) -> list[str]:
+    """Candidate event terms: bullets stripped, 1-6 words, deduped."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for line in re.split(r"[\n;]+", chunk):
+            words = _SPL_BULLET_RE.sub("", line).strip().split()
+            if not 1 <= len(words) <= 6:
+                continue
+            token = " ".join(words).casefold()
+            if not any(ch.isalnum() for ch in token):
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            terms.append(" ".join(words))
+            if len(terms) >= _SPL_MAX_TERMS:
+                return terms
+    return terms
+
+
+def _fetch_spl_label_events(drug: str) -> list[dict[str, str]]:
+    """Fetch and parse the first SPL's adverse-reactions section."""
+    results = search_spl(drug)
+    if not results or not results[0].get("setid"):
+        return []
+    setid = str(results[0]["setid"])
+    content = _get(_DAILYMED_SPL_URL.format(setid=quote(setid))).content
+    if len(content) > _SPL_MAX_BYTES:
+        raise ValueError(f"SPL '{setid}' exceeds {_SPL_MAX_BYTES} bytes")
+    chunks = _spl_adverse_chunks(ET.fromstring(content))
+    if not chunks:
+        logger.debug(
+            "dailymed: no adverse-reactions section for '{}'", drug
+        )
+        return []
+    return [{"term": term, "setid": setid} for term in _spl_terms(chunks)]
+
+
+def spl_label_events(drug: str) -> list[dict[str, str]]:
+    """Labelled (expected) adverse-event terms from the drug's SPL.
+
+    Resolves the SPL setid via :func:`search_spl`, fetches the SPL
+    XML (parse capped at 5 MB), and extracts candidate event terms
+    from the adverse-reactions section.
+
+    Parameters
+    ----------
+    drug : str
+        Medicinal product name to search for.
+
+    Returns
+    -------
+    list of dict
+        ``[{"term": str, "setid": str}, ...]`` — labelled (expected)
+        events for the drug, capped at 30 terms; empty when the drug
+        has no SPL, the label has no usable adverse-reactions
+        section, or any error occurs (fail-open).
+    """
+    key = f"dailymed_spl:{drug.strip().casefold()}"
+    result: list[dict[str, str]] | None = _cached_call(
+        key, lambda: _fetch_spl_label_events(drug)
+    )
+    return result if result is not None else []
 
 
 if __name__ == "__main__":
