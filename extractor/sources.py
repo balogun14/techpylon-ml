@@ -269,9 +269,9 @@ def _spl_adverse_chunks(root: ET.Element) -> list[str]:
                 continue
             chunks: list[str] = []
             for node in element.iter():
-                heading = (
-                    isinstance(node.tag, str)
-                    and _local_tag(node) in ("heading", "title")
+                heading = isinstance(node.tag, str) and _local_tag(node) in (
+                    "heading",
+                    "title",
                 )
                 if heading:
                     continue
@@ -314,9 +314,7 @@ def _fetch_spl_label_events(drug: str) -> list[dict[str, str]]:
         raise ValueError(f"SPL '{setid}' exceeds {_SPL_MAX_BYTES} bytes")
     chunks = _spl_adverse_chunks(ET.fromstring(content))
     if not chunks:
-        logger.debug(
-            "dailymed: no adverse-reactions section for '{}'", drug
-        )
+        logger.debug("dailymed: no adverse-reactions section for '{}'", drug)
         return []
     return [{"term": term, "setid": setid} for term in _spl_terms(chunks)]
 

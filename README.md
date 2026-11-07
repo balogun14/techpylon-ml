@@ -108,7 +108,7 @@ sources below are wired — do not present them as MedDRA.
 | **RxNorm** (NLM RxNav API) | wired — `extractor/sources.py` | normalises drug names, cross-checks the drug dictionary | free, no key |
 | **openFDA FAERS** | wired — `extractor/sources.py` | real-world drug→event report counts; data-driven expectedness priors and future classifier training data | free, no key, rate-limited |
 | **DailyMed SPL** | wired — `extractor/sources.py` | structured product labels → labelled (expected) event lists | free, no key |
-| **NAFDAC registered products** | ingestion ready — `extractor/nafdac.py` (CSV) | Nigerian product dictionary extension; safety alerts feed | no public bulk API — CSV export from the NAFDAC product registry |
+| **NAFDAC** | wired — `extractor/nafdac.py` | **live safety-alerts feed**: 400+ published recalls/alerts scraped from the public Recalls and Alerts registry into `data/nafdac/alerts.json` (`fetch_alerts`, `alerts_for_product`); **single-product verification** against the NAPAMS portal (`verify_product` — needs a browser-obtained reCAPTCHA token, portal is captcha-gated); **bulk registered-products CSV** ingestion (`load_products`/`extend_aliases`) | no public bulk API — registry bulk export via CSV/FOI; alerts are public |
 | **MedDRA** | licensing decision open (PRD) | the regulator-expected AE coding dictionary | commercial license (MSSO/UMC) |
 | **DrugBank** | not used | drug indications/DDI enrichment | commercial (free academic tier exists) |
 | **WHO UMC / VigiBase** | not used | global ICSR signal statistics | via national centre (NAFDAC) |
