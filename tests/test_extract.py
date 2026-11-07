@@ -41,7 +41,7 @@ def test_csv_messy_headers() -> None:
     assert len(drafts) == 2
     first = drafts[0]
     assert first.doc_type == "csv_line_listing"
-    assert first.extractor_version == "0.2.0"
+    assert first.extractor_version == "0.3.0"
     assert set(first.fields) == set(FIELD_KEYS)
     patient = first.fields["patient"]
     assert patient.value == "JD"
@@ -134,7 +134,7 @@ def test_extract_csv_end_to_end() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["doc_type"] == "csv_line_listing"
-    assert body["extractor_version"] == "0.2.0"
+    assert body["extractor_version"] == "0.3.0"
     assert set(body) == {"doc_type", "extractor_version", "cases"}
     assert len(body["cases"]) == 2
     case = body["cases"][0]
@@ -210,8 +210,50 @@ def test_read_pdf() -> None:
     assert resp.fields["seriousness"].value == "serious"
 
 
-def test_read_pdf_without_text_layer() -> None:
-    """A text-free PDF raises DocReadError, the basis of the 422 path."""
+def test_read_scanned_pdf_ocr() -> None:
+    """A scanned PDF (image-only) falls back to the OCR path."""
+    import fitz
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (1200, 400), "white")
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=48)
+    draw.text((50, 50), "Patient: Jane Doe", fill="black", font=font)
+    draw.text((50, 200), "Reaction: fatal rash", fill="black", font=font)
+    png = io.BytesIO()
+    img.save(png, format="PNG")
+
+    doc = fitz.open()
+    page = doc.new_page(width=1200, height=400)
+    page.insert_image(fitz.Rect(0, 0, 1200, 400), stream=png.getvalue())
+    scanned = doc.tobytes()
+
+    text = read_document("scan.pdf", scanned)
+    low = text.lower()
+    assert "jane doe" in low
+    assert "rash" in low
+    resp = extract_text(text)
+    assert resp.fields["patient"].value != ""
+    assert resp.fields["seriousness"].value == "serious"
+
+
+def test_read_image_ocr() -> None:
+    """Image uploads are OCR'd directly."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (1200, 200), "white")
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=48)
+    draw.text((50, 60), "Patient: John Bello", fill="black", font=font)
+    png = io.BytesIO()
+    img.save(png, format="PNG")
+
+    text = read_document("photo.png", png.getvalue())
+    assert "bello" in text.lower()
+
+
+def test_read_garbage_doc_fails_cleanly() -> None:
+    """Bytes that are neither PDF nor image end as 422, not a crash."""
     with pytest.raises(DocReadError):
         read_document("scan.pdf", b"%PDF-1.4 not a real pdf")
 
@@ -285,7 +327,7 @@ def test_extract_response_rejects_bad_confidence() -> None:
     with pytest.raises(ValidationError):
         ExtractResponse(
             doc_type="free_text",
-            extractor_version="0.2.0",
+            extractor_version="0.3.0",
             fields={
                 "patient": FieldDraft(value="x", confidence=1.5),
             },
